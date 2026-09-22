@@ -423,6 +423,14 @@ input:checked + .slider:before{transform:translateX(20px);}
           </div>
         </div>
         <div class="painel">
+          <h3>Serviços mais utilizados</h3>
+          <div id="dash-servicos-top"></div>
+        </div>
+        <div class="painel">
+          <h3>Peças mais utilizadas</h3>
+          <div id="dash-pecas-top"></div>
+        </div>
+        <div class="painel">
           <h3>Retornos pendentes</h3>
           <div class="tabela-wrap" id="dash-retornos"></div>
         </div>
@@ -599,7 +607,10 @@ input:checked + .slider:before{transform:translateX(20px);}
       </div>
       <div class="itens-tabela">
         <div class="linha-add-item no-print">
-          <input type="text" id="item-desc" placeholder="Serviço ou peça (busca no cadastro)" autocomplete="off">
+          <div class="busca-cliente-wrap">
+            <input type="text" id="item-desc" placeholder="Serviço ou peça (busca no cadastro)" autocomplete="off">
+            <div class="sugestoes" id="item-sugestoes" style="display:none;"></div>
+          </div>
           <input type="number" id="item-qtd" placeholder="Qtd" min="1" value="1">
           <input type="number" id="item-valor" placeholder="Valor unit." min="0" step="0.01">
           <span id="item-total-preview" style="font-size:13px;color:var(--texto-suave);text-align:right;">R$ 0,00</span>
@@ -613,6 +624,11 @@ input:checked + .slider:before{transform:translateX(20px);}
         </div>
       </div>
       <div class="total-geral">Total geral: <b id="orc-total-geral">R$ 0,00</b></div>
+
+      <div class="campo full" style="margin:14px 0 0;">
+        <label>Observação</label>
+        <textarea id="orc-observacao" rows="3" placeholder="Observações sobre o orçamento/OS..." style="width:100%;padding:10px 12px;border:1px solid var(--borda);border-radius:8px;background:var(--bg-elevado);color:var(--texto);font-size:13.5px;font-family:var(--font-body);resize:vertical;"></textarea>
+      </div>
 
       <div class="retorno-box">
         <div class="campo" style="margin:0;"><label>Retorno por KM</label><input type="text" id="orc-retorno-km" placeholder="Ex: 45.000 km"></div>
@@ -955,6 +971,7 @@ document.getElementById("busca-global-input").addEventListener("keydown", functi
 function renderDashboard(){
   var totalClientes = DB.clientes.length;
   var totalServicos = DB.servicos.length;
+  var totalPecas = DB.pecas.length;
   var orcs = DB.orcamentos.filter(function(o){ return o.tipo==="orcamento"; }).length;
   var osList = DB.orcamentos.filter(function(o){ return o.tipo==="os"; });
   var osAbertas = osList.filter(function(o){ return o.status!=="os-concluida"; }).length;
@@ -963,10 +980,11 @@ function renderDashboard(){
 
   var cards = [
     {rot:"Clientes", val:totalClientes, sub:"cadastrados", cls:""},
-    {rot:"Serviços", val:totalServicos, sub:"no catálogo", cls:""},
+    {rot:"Retornos", val:retornosPendentes, sub:"pendentes / próximos", cls:"vm"},
     {rot:"Orçamentos", val:orcs, sub:"aguardando aprovação", cls:"vm"},
     {rot:"OS em aberto", val:osAbertas, sub:"em andamento", cls:"preto"},
-    {rot:"Retornos", val:retornosPendentes, sub:"pendentes / próximos", cls:"vm"}
+    {rot:"Serviços", val:totalServicos, sub:"no catálogo", cls:""},
+    {rot:"Peças", val:totalPecas, sub:"no catálogo", cls:""}
   ];
   document.getElementById("dash-cards").innerHTML = cards.map(function(c){
     return '<div class="card-stat '+c.cls+'"><div class="rotulo">'+c.rot+'</div><div class="valor">'+c.val+'</div><div class="sub">'+c.sub+'</div></div>';
@@ -1003,7 +1021,43 @@ function renderDashboard(){
   var pctOs = 100 - pctOrc;
   document.getElementById("dash-grafico-pizza").innerHTML = totalDocs ? svgPizza(pctOrc, pctOs) : '<div class="vazio">Sem dados ainda.</div>';
 
+  renderTopServicosPecas();
   renderRetornosDashboard(retornos);
+}
+function renderTopServicosPecas(){
+  var contagemServ = {}, contagemPeca = {};
+  var nomesServ = {}, nomesPeca = {};
+  DB.servicos.forEach(function(s){ nomesServ[normalizar(s.nome)] = s.nome; });
+  DB.pecas.forEach(function(p){ nomesPeca[normalizar(p.nome)] = p.nome; });
+  DB.orcamentos.forEach(function(o){
+    (o.itens||[]).forEach(function(it){
+      var chave = normalizar(it.descricao);
+      if(nomesServ[chave]){
+        contagemServ[chave] = contagemServ[chave] || {nome:nomesServ[chave], qtd:0, total:0};
+        contagemServ[chave].qtd += Number(it.qtd)||0;
+        contagemServ[chave].total += Number(it.valorTotal)||0;
+      } else if(nomesPeca[chave]){
+        contagemPeca[chave] = contagemPeca[chave] || {nome:nomesPeca[chave], qtd:0, total:0};
+        contagemPeca[chave].qtd += Number(it.qtd)||0;
+        contagemPeca[chave].total += Number(it.valorTotal)||0;
+      }
+    });
+  });
+  document.getElementById("dash-servicos-top").innerHTML = montarRankingBarras(contagemServ);
+  document.getElementById("dash-pecas-top").innerHTML = montarRankingBarras(contagemPeca);
+}
+function montarRankingBarras(contagem){
+  var lista = Object.keys(contagem).map(function(k){ return contagem[k]; });
+  lista.sort(function(a,b){ return b.total-a.total; });
+  lista = lista.slice(0, 6);
+  if(!lista.length) return '<div class="vazio">Sem dados ainda.</div>';
+  var max = Math.max.apply(null, lista.map(function(l){return l.total;}).concat([1]));
+  return lista.map(function(l){
+    var pct = Math.round((l.total/max)*100);
+    return '<div class="barra-row"><div class="rot" title="'+escapeHtml(l.nome)+'">'+escapeHtml(l.nome)+'</div>'+
+      '<div class="barra-fundo"><div class="barra-cor" style="width:'+pct+'%;"></div></div>'+
+      '<div class="val">'+formatarMoeda(l.total)+'</div></div>';
+  }).join("");
 }
 function svgPizza(pctA, pctB){
   var r=60, c=2*Math.PI*r;
@@ -1334,7 +1388,7 @@ var itensTemp = [];
 function novoOrcamento(){
   orcamentoAtual = {
     numero: DB.seq, tipo:"orcamento", data: hoje(), clienteId:null, clienteNome:"",
-    endereco:"", telefone:"", veiculo:"", placa:"", km:"", itens:[], totalGeral:0,
+    endereco:"", telefone:"", veiculo:"", placa:"", km:"", itens:[], totalGeral:0, observacao:"",
     retornoKm:"", retornoData:"", status:"orcamento", dataConversao:null
   };
   itensTemp = [];
@@ -1368,6 +1422,7 @@ function preencherModalOrcamento(){
   document.getElementById("orc-km").value = o.km || "";
   document.getElementById("orc-retorno-km").value = o.retornoKm || "";
   document.getElementById("orc-retorno-data").value = o.retornoData || "";
+  document.getElementById("orc-observacao").value = o.observacao || "";
   document.getElementById("item-desc").value = ""; document.getElementById("item-qtd").value="1"; document.getElementById("item-valor").value="";
   atualizarCabecalhoEmpresa();
   renderTabelaItens();
@@ -1458,10 +1513,55 @@ document.getElementById("orc-busca-cliente").addEventListener("blur", function()
 });
 
 /* itens do orçamento — busca em serviços e peças cadastrados */
-var itemDescDatalistTimer = null;
-document.getElementById("item-desc").addEventListener("input", atualizarPreviewItem);
+var ITEM_MAX_SUGESTOES = 8;
 document.getElementById("item-qtd").addEventListener("input", atualizarPreviewItem);
 document.getElementById("item-valor").addEventListener("input", atualizarPreviewItem);
+function montarSugestoesItem(){
+  var input = document.getElementById("item-desc");
+  var box = document.getElementById("item-sugestoes");
+  var termo = normalizar(input.value.trim());
+  if(!termo){ box.style.display = "none"; box.innerHTML = ""; return; }
+  var achadosServ = DB.servicos.filter(function(s){ return normalizar(s.nome).indexOf(termo)>-1; })
+    .map(function(s){ return {tipo:"servico", nome:s.nome, valor:s.valor}; });
+  var achadosPecas = DB.pecas.filter(function(p){ return normalizar(p.nome).indexOf(termo)>-1; })
+    .map(function(p){ return {tipo:"peca", nome:p.nome, valor:p.valor, detalhe:[p.marca,p.modelo].filter(Boolean).join(" ")}; });
+  var achados = achadosServ.concat(achadosPecas);
+  achados.sort(function(a,b){
+    var pa = normalizar(a.nome).indexOf(termo)===0 ? 0 : 1;
+    var pb = normalizar(b.nome).indexOf(termo)===0 ? 0 : 1;
+    if(pa!==pb) return pa-pb;
+    return normalizar(a.nome).localeCompare(normalizar(b.nome));
+  });
+  achados = achados.slice(0, ITEM_MAX_SUGESTOES);
+  if(!achados.length){ box.style.display = "none"; box.innerHTML = ""; return; }
+  box.innerHTML = achados.map(function(it, i){
+    var rotuloTipo = it.tipo==="servico" ? "Serviço" : "Peça";
+    var detalhe = it.detalhe ? " · "+escapeHtml(it.detalhe) : "";
+    return '<div class="op-item" data-i="'+i+'"><b>'+escapeHtml(it.nome)+'</b>'+
+      ' <span style="color:var(--texto-suave);font-size:12.5px;">— '+rotuloTipo+detalhe+' · '+formatarMoeda(it.valor)+'</span></div>';
+  }).join("");
+  box._dados = achados;
+  box.style.display = "block";
+}
+document.getElementById("item-desc").addEventListener("input", function(){
+  atualizarPreviewItem();
+  montarSugestoesItem();
+});
+document.getElementById("item-sugestoes").addEventListener("click", function(e){
+  var op = e.target.closest(".op-item");
+  if(op && this._dados){
+    var it = this._dados[parseInt(op.getAttribute("data-i"),10)];
+    if(it){
+      document.getElementById("item-desc").value = it.nome;
+      document.getElementById("item-valor").value = it.valor;
+      atualizarPreviewItem();
+    }
+  }
+  this.style.display = "none";
+});
+document.addEventListener("click", function(e){
+  if(!e.target.closest("#item-sugestoes") && e.target.id!=="item-desc") document.getElementById("item-sugestoes").style.display="none";
+});
 document.getElementById("item-desc").addEventListener("change", function(){
   var termo = normalizar(this.value);
   var achado = DB.servicos.filter(function(s){return normalizar(s.nome)===termo;})[0] ||
@@ -1480,6 +1580,7 @@ document.getElementById("btn-add-item").addEventListener("click", function(){
   if(!desc){ mostrarToast("Informe a descrição do item.", "err"); return; }
   itensTemp.push({id:uid(), qtd:qtd, descricao:desc, valorUnit:val, valorTotal: qtd*val});
   document.getElementById("item-desc").value=""; document.getElementById("item-qtd").value="1"; document.getElementById("item-valor").value="";
+  document.getElementById("item-sugestoes").style.display="none";
   atualizarPreviewItem();
   renderTabelaItens();
 });
@@ -1513,6 +1614,7 @@ function coletarDadosFormOrcamento(){
   orcamentoAtual.km = document.getElementById("orc-km").value.trim();
   orcamentoAtual.retornoKm = document.getElementById("orc-retorno-km").value.trim();
   orcamentoAtual.retornoData = document.getElementById("orc-retorno-data").value;
+  orcamentoAtual.observacao = document.getElementById("orc-observacao").value.trim();
   orcamentoAtual.itens = itensTemp;
   orcamentoAtual.totalGeral = itensTemp.reduce(function(s,it){return s+it.valorTotal;},0);
 }
@@ -1612,17 +1714,29 @@ function renderListaOrcamentos(){
   var linhas = lista.map(function(o){
     var si = statusInfo(o);
     var podeConcluir = o.tipo==="os" && o.status!=="os-concluida";
+    var concluida = o.status==="os-concluida";
     return '<tr><td><b style="color:var(--vermelho);">#'+o.numero+'</b></td><td><span class="tag '+si[0]+'">'+si[1]+'</span></td>'+
       '<td>'+escapeHtml(o.clienteNome)+'</td><td>'+escapeHtml(o.veiculo||"-")+' · '+escapeHtml(o.placa||"-")+'</td>'+
       '<td>'+formatarData(o.data)+'</td><td>'+formatarMoeda(o.totalGeral)+'</td>'+
       '<td class="linha-acoes">'+
         '<button class="btn-icone abrir-orc" data-num="'+o.numero+'" title="Abrir">👁️</button>'+
+        (concluida?"":'<button class="btn-icone editar-orc" data-num="'+o.numero+'" title="Editar">✏️</button>')+
+        (concluida?"":'<button class="btn-icone excluir-orc-lista" data-num="'+o.numero+'" title="Excluir">🗑️</button>')+
         (podeConcluir?'<button class="btn-icone concluir-os" data-num="'+o.numero+'" title="Marcar como concluída">✅</button>':'')+
       '</td></tr>';
   }).join("");
   document.getElementById("lista-orcamentos").innerHTML =
     '<table><thead><tr><th>Nº</th><th>Status</th><th>Cliente</th><th>Veículo</th><th>Data</th><th>Total</th><th>Ações</th></tr></thead><tbody>'+linhas+'</tbody></table>';
   document.querySelectorAll(".abrir-orc").forEach(function(b){ b.addEventListener("click", function(){ abrirOrcamentoExistente(parseInt(b.getAttribute("data-num"),10)); }); });
+  document.querySelectorAll(".editar-orc").forEach(function(b){ b.addEventListener("click", function(){ abrirOrcamentoExistente(parseInt(b.getAttribute("data-num"),10)); }); });
+  document.querySelectorAll(".excluir-orc-lista").forEach(function(b){ b.addEventListener("click", function(){
+    var num = parseInt(b.getAttribute("data-num"),10);
+    pedirConfirmacao("Excluir o documento Nº "+num+"? Esta ação não pode ser desfeita.", function(){
+      DB.orcamentos = DB.orcamentos.filter(function(o){return o.numero!==num;});
+      salvarDB(DB); renderListaOrcamentos(); renderDashboard();
+      mostrarToast("Documento excluído.", "ok");
+    });
+  }); });
   document.querySelectorAll(".concluir-os").forEach(function(b){ b.addEventListener("click", function(){
     var num = parseInt(b.getAttribute("data-num"),10);
     var idx = DB.orcamentos.findIndex(function(o){return o.numero===num;});
